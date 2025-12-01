@@ -67,6 +67,12 @@ dependencies = [
 webui = [
   "gradio==5.45.0",
 ]
+# To install the API support, use `uv sync --extra api` (or `--all-extras`).
+api = [
+  "uvicorn[standard]",
+  "python-multipart",
+  "pyngrok>=7.0.0",
+]
 # To install the DeepSpeed support, use `uv sync --extra deepspeed` (or `--all-extras`).
 deepspeed = [
   "deepspeed==0.17.1",
