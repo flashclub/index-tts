@@ -220,7 +220,7 @@ async def synthesize(
     os.makedirs(temp_dir, exist_ok=True)
     
     try:
-        chunks = chunk_text(input_text, max_len=250)
+        chunks = chunk_text(input_text, max_length=250)
         wav_paths = []
 
         print(f"Starting synthesis for {len(chunks)} chunks...")
@@ -272,7 +272,9 @@ def main():
     print("\n" + "="*60)
     print("🚀 IndexTTS API is running!")
     print(f"✅ Public Docs URL (ngrok): {public_url}/docs")
-    print(f"✅ Local Docs URL: http://{host}:{port}/docs")
+    print(f"✅ Command line example:")
+    print(f"  curl -X POST -F \"voice_path=/content/drive/MyDrive/Index-TTS/samples/sample1.wav\" -F \"file=@/path/on/your/local/machine/input.txt\" \\\n"
+          f"  -F \"duration_sec=15\" {public_url}/api/synthesize")
     print("="*60 + "\n")
 
     uvicorn.run(app, host=host, port=port)
