@@ -86,7 +86,7 @@ def merge_wavs(paths: List[str], out_path: str) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Batch Text-to-Speech Synthesis for Kaggle using Index-TTS 1.5 (infer_fast).",
+        description="Batch Text-to-Speech Synthesis for Kaggle using Index-TTS 2 with deepspeed.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument("--model_dir", type=str, default="/kaggle/working/index-tts/checkpoints", help="Path to the absolute model checkpoints directory.")
