@@ -5,6 +5,6 @@
 
 | Colab&Kaggle | Info
 | --- | --- |
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)]() | Index TTS 2 API on Google Colab
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/camenduru/Z-Image-jupyter/blob/main/Z_Image_Turbo_jupyter.ipynb) | Index TTS 2 API on Google Colab
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)]() | Index TTS 2 on Kaggle
 
