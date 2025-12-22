@@ -125,7 +125,7 @@ def download_voice_file(voice_path: str) -> tuple[str, bool]:
     if voice_path.startswith(('http://', 'https://')):
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            print(f"[{timestamp}] 🌐 Downloading voice file from URL: {voice_path}")
+            print(f"[{timestamp}] 🌐 Downloading voice file from URL: {voice_path}", flush=True)
             
             # Create temporary file
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
@@ -136,12 +136,12 @@ def download_voice_file(voice_path: str) -> tuple[str, bool]:
             urllib.request.urlretrieve(voice_path, temp_path)
             
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            print(f"[{timestamp}] ✅ Voice file downloaded to: {temp_path}")
+            print(f"[{timestamp}] ✅ Voice file downloaded to: {temp_path}", flush=True)
             
             return temp_path, True
         except Exception as e:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            print(f"[{timestamp}] ❌ Failed to download voice file: {e}")
+            print(f"[{timestamp}] ❌ Failed to download voice file: {e}", flush=True)
             raise HTTPException(status_code=400, detail=f"Failed to download voice file from URL: {str(e)}")
     else:
         # It's a local path
@@ -395,7 +395,7 @@ async def upload_to_r2(file_path: str, filename: str) -> str:
     
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"[{timestamp}] 📤 Uploading to R2: {filename}")
+        print(f"[{timestamp}] 📤 Uploading to R2: {filename}", flush=True)
         
         with open(file_path, 'rb') as f:
             r2_client.upload_fileobj(
@@ -409,16 +409,16 @@ async def upload_to_r2(file_path: str, filename: str) -> str:
         public_url = f"{r2_public_url.rstrip('/')}/{filename}"
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"[{timestamp}] ✅ R2 upload successful: {public_url}")
+        print(f"[{timestamp}] ✅ R2 upload successful: {public_url}", flush=True)
         return public_url
         
     except ClientError as e:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"[{timestamp}] ❌ R2 upload failed: {e}")
+        print(f"[{timestamp}] ❌ R2 upload failed: {e}", flush=True)
         raise HTTPException(status_code=500, detail=f"R2 upload failed: {str(e)}")
     except Exception as e:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"[{timestamp}] ❌ Unexpected error during R2 upload: {e}")
+        print(f"[{timestamp}] ❌ Unexpected error during R2 upload: {e}", flush=True)
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 async def save_to_supabase(filename: str, url: str) -> dict:
@@ -440,7 +440,7 @@ async def save_to_supabase(filename: str, url: str) -> dict:
     
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"[{timestamp}] 💾 Saving to Supabase: {filename}")
+        print(f"[{timestamp}] 💾 Saving to Supabase: {filename}", flush=True)
         
         data = {
             "filename": filename,
@@ -450,13 +450,13 @@ async def save_to_supabase(filename: str, url: str) -> dict:
         response = supabase_client.table("audio_url").insert(data).execute()
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"[{timestamp}] ✅ Supabase save successful. Record ID: {response.data[0].get('id') if response.data else 'N/A'}")
+        print(f"[{timestamp}] ✅ Supabase save successful. Record ID: {response.data[0].get('id') if response.data else 'N/A'}", flush=True)
         
         return response.data[0] if response.data else {}
         
     except Exception as e:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"[{timestamp}] ❌ Supabase save failed: {e}")
+        print(f"[{timestamp}] ❌ Supabase save failed: {e}", flush=True)
         raise HTTPException(status_code=500, detail=f"Supabase save failed: {str(e)}")
 
 @app.post("/api/synthesize_with_storage")
@@ -472,9 +472,9 @@ async def synthesize_with_storage(
     The local file will be deleted after successful upload to save space.
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    print(f"\n{'='*60}")
-    print(f"[{timestamp}] 🚀 Starting synthesize_with_storage request")
-    print(f"{'='*60}")
+    print(f"\n{'='*60}", flush=True)
+    print(f"[{timestamp}] 🚀 Starting synthesize_with_storage request", flush=True)
+    print(f"{'='*60}", flush=True)
     
     # Check service availability
     if tts_service is None:
@@ -497,12 +497,12 @@ async def synthesize_with_storage(
     base_filename = ""
     if file and file.filename:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"[{timestamp}] 📄 Reading uploaded file: {file.filename}")
+        print(f"[{timestamp}] 📄 Reading uploaded file: {file.filename}", flush=True)
         input_text = (await file.read()).decode("utf-8")
         base_filename = os.path.splitext(file.filename)[0]
     elif text:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"[{timestamp}] 📝 Using text input (length: {len(text)} chars)")
+        print(f"[{timestamp}] 📝 Using text input (length: {len(text)} chars)", flush=True)
         input_text = text
         base_filename = f"synthesis_{uuid.uuid4()}"
 
@@ -520,13 +520,13 @@ async def synthesize_with_storage(
         # Step 1: Generate audio
         chunks = chunk_text(input_text, max_length=250)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"[{timestamp}] 🎵 Starting TTS synthesis for {len(chunks)} chunk(s)")
+        print(f"[{timestamp}] 🎵 Starting TTS synthesis for {len(chunks)} chunk(s)", flush=True)
 
         for i, chunk in enumerate(chunks):
             out_path = os.path.join(output_dir, f"{base_filename}_{i+1}.wav")
             try:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                print(f"[{timestamp}] 🔊 Processing chunk {i+1}/{len(chunks)}...")
+                print(f"[{timestamp}] 🔊 Processing chunk {i+1}/{len(chunks)}...", flush=True)
                 
                 tts_service.infer_chunk(
                     text=chunk,
@@ -537,10 +537,10 @@ async def synthesize_with_storage(
                 wav_paths.append(out_path)
                 
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                print(f"[{timestamp}] ✅ Chunk {i+1}/{len(chunks)} complete: {out_path}")
+                print(f"[{timestamp}] ✅ Chunk {i+1}/{len(chunks)} complete: {out_path}", flush=True)
             except Exception as e:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                print(f"[{timestamp}] ❌ Error processing chunk {i+1}: {e}")
+                print(f"[{timestamp}] ❌ Error processing chunk {i+1}: {e}", flush=True)
                 raise HTTPException(status_code=500, detail=f"Error processing chunk {i+1}: {str(e)}")
 
         if not wav_paths:
@@ -549,12 +549,12 @@ async def synthesize_with_storage(
         # Step 2: Merge chunks
         final_out_path = os.path.join(output_dir, f"{base_filename}.wav")
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"[{timestamp}] 🔗 Merging {len(wav_paths)} chunk(s) into final audio...")
+        print(f"[{timestamp}] 🔗 Merging {len(wav_paths)} chunk(s) into final audio...", flush=True)
         
         merge_wavs(wav_paths, final_out_path)
         
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"[{timestamp}] ✅ Audio merge complete: {final_out_path}")
+        print(f"[{timestamp}] ✅ Audio merge complete: {final_out_path}", flush=True)
 
         # Step 3: Upload to R2
         r2_filename = f"{base_filename}.wav"
@@ -565,19 +565,19 @@ async def synthesize_with_storage(
 
         # Step 5: Delete local file to save space
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"[{timestamp}] 🗑️  Deleting local file to save space: {final_out_path}")
+        print(f"[{timestamp}] 🗑️  Deleting local file to save space: {final_out_path}", flush=True)
         try:
             os.remove(final_out_path)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            print(f"[{timestamp}] ✅ Local file deleted successfully")
+            print(f"[{timestamp}] ✅ Local file deleted successfully", flush=True)
         except OSError as e:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            print(f"[{timestamp}] ⚠️  Warning: Failed to delete local file: {e}")
+            print(f"[{timestamp}] ⚠️  Warning: Failed to delete local file: {e}", flush=True)
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        print(f"\n{'='*60}")
-        print(f"[{timestamp}] 🎉 Synthesis with storage complete!")
-        print(f"{'='*60}\n")
+        print(f"\n{'='*60}", flush=True)
+        print(f"[{timestamp}] 🎉 Synthesis with storage complete!", flush=True)
+        print(f"{'='*60}\n", flush=True)
 
         return {
             "message": "Synthesis with storage successful.",
@@ -590,7 +590,7 @@ async def synthesize_with_storage(
         # Clean up intermediate chunk files
         if wav_paths:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            print(f"[{timestamp}] 🧹 Cleaning up intermediate chunk files...")
+            print(f"[{timestamp}] 🧹 Cleaning up intermediate chunk files...", flush=True)
             for p in wav_paths:
                 try:
                     if os.path.exists(p):
@@ -604,7 +604,7 @@ async def synthesize_with_storage(
             try:
                 os.remove(local_voice_path)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                print(f"[{timestamp}] 🧹 Removed temporary voice file: {local_voice_path}")
+                print(f"[{timestamp}] 🧹 Removed temporary voice file: {local_voice_path}", flush=True)
             except OSError as e:
                 print(f"  ⚠️  Error removing temporary voice file: {e}")
 
