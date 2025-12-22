@@ -72,6 +72,8 @@ api = [
   "uvicorn[standard]",
   "python-multipart",
   "pyngrok>=7.0.0",
+  "boto3>=1.35.0",  # For R2 (S3-compatible) object storage
+  "supabase>=2.0.0",  # For Supabase database integration
 ]
 # To install the DeepSpeed support, use `uv sync --extra deepspeed` (or `--all-extras`).
 deepspeed = [

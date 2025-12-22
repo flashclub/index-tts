@@ -6,10 +6,14 @@ import re
 import shutil
 import sys
 import uvicorn
+from datetime import datetime
 from typing import List, Optional
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from pyngrok import ngrok
+import boto3
+from botocore.exceptions import ClientError
+from supabase import create_client, Client
 
 # --- Command Line Arguments ---
 parser = argparse.ArgumentParser(
@@ -181,16 +185,61 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"\033[91mError loading TTS Service: {e}\033[0m")
         sys.exit(1)
+
+    # 4. Initialize R2 client (optional)
+    global r2_client, supabase_client
+    r2_account_id = os.environ.get("R2_ACCOUNT_ID")
+    r2_access_key = os.environ.get("R2_ACCESS_KEY_ID")
+    r2_secret_key = os.environ.get("R2_SECRET_ACCESS_KEY")
+    r2_bucket_name = os.environ.get("R2_BUCKET_NAME")
+    
+    if all([r2_account_id, r2_access_key, r2_secret_key, r2_bucket_name]):
+        try:
+            print("Initializing R2 client...")
+            r2_client = boto3.client(
+                service_name='s3',
+                endpoint_url=f'https://{r2_account_id}.r2.cloudflarestorage.com',
+                aws_access_key_id=r2_access_key,
+                aws_secret_access_key=r2_secret_key,
+                region_name='auto'
+            )
+            print("\033[92mR2 client initialized successfully.\033[0m")
+        except Exception as e:
+            print(f"\033[93mWarning: Failed to initialize R2 client: {e}\033[0m")
+            print("\033[93m/api/synthesize_with_storage endpoint will not be available.\033[0m")
+            r2_client = None
+    else:
+        print("\033[93mR2 configuration not found. /api/synthesize_with_storage endpoint will not be available.\033[0m")
+    
+    # 5. Initialize Supabase client (optional)
+    supabase_url = os.environ.get("SUPABASE_URL")
+    supabase_key = os.environ.get("SUPABASE_KEY")
+    
+    if all([supabase_url, supabase_key]):
+        try:
+            print("Initializing Supabase client...")
+            supabase_client = create_client(supabase_url, supabase_key)
+            print("\033[92mSupabase client initialized successfully.\033[0m")
+        except Exception as e:
+            print(f"\033[93mWarning: Failed to initialize Supabase client: {e}\033[0m")
+            print("\033[93m/api/synthesize_with_storage endpoint will not be available.\033[0m")
+            supabase_client = None
+    else:
+        print("\033[93mSupabase configuration not found. /api/synthesize_with_storage endpoint will not be available.\033[0m")
         
     yield
     
     print("--- Lifespan shutdown ---")
     # Clean up the ML models and release the resources
     tts_service = None
+    r2_client = None
+    supabase_client = None
 
 app = FastAPI(title="IndexTTS API", description="A pure API for IndexTTS2 using FastAPI and ngrok.", lifespan=lifespan)
 
 tts_service: Optional[TTSService] = None
+r2_client = None
+supabase_client: Optional[Client] = None
 
 @app.post("/api/synthesize")
 async def synthesize(
@@ -269,7 +318,233 @@ async def synthesize(
                 except OSError as e:
                     print(f"\033[91mError removing intermediate file {p}: {e}\033[0m")
 
+# --- Helper Functions for R2 and Supabase ---
+
+async def upload_to_r2(file_path: str, filename: str) -> str:
+    """
+    Upload a file to Cloudflare R2 and return the public URL.
+    
+    Args:
+        file_path: Local path to the file to upload
+        filename: Desired filename in R2
+        
+    Returns:
+        Public URL of the uploaded file
+        
+    Raises:
+        HTTPException: If upload fails
+    """
+    if r2_client is None:
+        raise HTTPException(status_code=503, detail="R2 service is not configured.")
+    
+    bucket_name = os.environ.get("R2_BUCKET_NAME")
+    r2_public_url = os.environ.get("R2_PUBLIC_URL", "")
+    
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"[{timestamp}] 📤 Uploading to R2: {filename}")
+        
+        with open(file_path, 'rb') as f:
+            r2_client.upload_fileobj(
+                f,
+                bucket_name,
+                filename,
+                ExtraArgs={'ContentType': 'audio/wav'}
+            )
+        
+        # Construct public URL
+        public_url = f"{r2_public_url.rstrip('/')}/{filename}"
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"[{timestamp}] ✅ R2 upload successful: {public_url}")
+        return public_url
+        
+    except ClientError as e:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"[{timestamp}] ❌ R2 upload failed: {e}")
+        raise HTTPException(status_code=500, detail=f"R2 upload failed: {str(e)}")
+    except Exception as e:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"[{timestamp}] ❌ Unexpected error during R2 upload: {e}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+async def save_to_supabase(filename: str, url: str) -> dict:
+    """
+    Save file metadata to Supabase audio_url table.
+    
+    Args:
+        filename: Name of the audio file
+        url: Public URL of the file
+        
+    Returns:
+        Dictionary containing the inserted record
+        
+    Raises:
+        HTTPException: If database operation fails
+    """
+    if supabase_client is None:
+        raise HTTPException(status_code=503, detail="Supabase service is not configured.")
+    
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"[{timestamp}] 💾 Saving to Supabase: {filename}")
+        
+        data = {
+            "filename": filename,
+            "url": url,
+        }
+        
+        response = supabase_client.table("audio_url").insert(data).execute()
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"[{timestamp}] ✅ Supabase save successful. Record ID: {response.data[0].get('id') if response.data else 'N/A'}")
+        
+        return response.data[0] if response.data else {}
+        
+    except Exception as e:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"[{timestamp}] ❌ Supabase save failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Supabase save failed: {str(e)}")
+
+@app.post("/api/synthesize_with_storage")
+async def synthesize_with_storage(
+    voice_path: str = Form(...),
+    text: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    duration_sec: Optional[float] = Form(None),
+):
+    """
+    Synthesize speech from text or a text file with chunking,
+    upload to R2, and save metadata to Supabase.
+    The local file will be deleted after successful upload to save space.
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    print(f"\n{'='*60}")
+    print(f"[{timestamp}] 🚀 Starting synthesize_with_storage request")
+    print(f"{'='*60}")
+    
+    # Check service availability
+    if tts_service is None:
+        raise HTTPException(status_code=503, detail="TTS service is not available. Check model path.")
+    
+    if r2_client is None or supabase_client is None:
+        raise HTTPException(
+            status_code=503, 
+            detail="R2 or Supabase service is not configured. Please set environment variables."
+        )
+
+    if not text and not file:
+        raise HTTPException(status_code=400, detail="Either 'text' (form field) or 'file' (upload) must be provided.")
+
+    # Parse input
+    input_text = ""
+    base_filename = ""
+    if file and file.filename:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"[{timestamp}] 📄 Reading uploaded file: {file.filename}")
+        input_text = (await file.read()).decode("utf-8")
+        base_filename = os.path.splitext(file.filename)[0]
+    elif text:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"[{timestamp}] 📝 Using text input (length: {len(text)} chars)")
+        input_text = text
+        base_filename = f"synthesis_{uuid.uuid4()}"
+
+    if not input_text:
+        raise HTTPException(status_code=400, detail="Input text is empty.")
+
+    # Use the specified final output directory for all files
+    output_dir = "/content/drive/MyDrive/Index-TTS/outputs"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    wav_paths = []
+    final_out_path = None
+    
+    try:
+        # Step 1: Generate audio
+        chunks = chunk_text(input_text, max_length=250)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"[{timestamp}] 🎵 Starting TTS synthesis for {len(chunks)} chunk(s)")
+
+        for i, chunk in enumerate(chunks):
+            out_path = os.path.join(output_dir, f"{base_filename}_{i+1}.wav")
+            try:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                print(f"[{timestamp}] 🔊 Processing chunk {i+1}/{len(chunks)}...")
+                
+                tts_service.infer_chunk(
+                    text=chunk,
+                    voice_path=voice_path,
+                    out_path=out_path,
+                    duration_sec=duration_sec if i == 0 else None
+                )
+                wav_paths.append(out_path)
+                
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                print(f"[{timestamp}] ✅ Chunk {i+1}/{len(chunks)} complete: {out_path}")
+            except Exception as e:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                print(f"[{timestamp}] ❌ Error processing chunk {i+1}: {e}")
+                raise HTTPException(status_code=500, detail=f"Error processing chunk {i+1}: {str(e)}")
+
+        if not wav_paths:
+            raise HTTPException(status_code=500, detail="Synthesis failed, no audio chunks were generated.")
+
+        # Step 2: Merge chunks
+        final_out_path = os.path.join(output_dir, f"{base_filename}.wav")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"[{timestamp}] 🔗 Merging {len(wav_paths)} chunk(s) into final audio...")
+        
+        merge_wavs(wav_paths, final_out_path)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"[{timestamp}] ✅ Audio merge complete: {final_out_path}")
+
+        # Step 3: Upload to R2
+        r2_filename = f"{base_filename}.wav"
+        r2_url = await upload_to_r2(final_out_path, r2_filename)
+
+        # Step 4: Save to Supabase
+        supabase_record = await save_to_supabase(r2_filename, r2_url)
+
+        # Step 5: Delete local file to save space
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"[{timestamp}] 🗑️  Deleting local file to save space: {final_out_path}")
+        try:
+            os.remove(final_out_path)
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            print(f"[{timestamp}] ✅ Local file deleted successfully")
+        except OSError as e:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            print(f"[{timestamp}] ⚠️  Warning: Failed to delete local file: {e}")
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        print(f"\n{'='*60}")
+        print(f"[{timestamp}] 🎉 Synthesis with storage complete!")
+        print(f"{'='*60}\n")
+
+        return {
+            "message": "Synthesis with storage successful.",
+            "r2_url": r2_url,
+            "supabase_record": supabase_record,
+            "filename": r2_filename,
+        }
+
+    finally:
+        # Clean up intermediate chunk files
+        if wav_paths:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            print(f"[{timestamp}] 🧹 Cleaning up intermediate chunk files...")
+            for p in wav_paths:
+                try:
+                    if os.path.exists(p):
+                        os.remove(p)
+                        print(f"  ✓ Removed: {p}")
+                except OSError as e:
+                    print(f"  ⚠️  Error removing {p}: {e}")
+
 def main():
+
     """Sets up ngrok tunnel and starts the FastAPI server."""
     # Get config from environment variables
     host = os.environ.get("API_HOST", "127.0.0.1")
