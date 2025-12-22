@@ -6,6 +6,8 @@ import re
 import shutil
 import sys
 import uvicorn
+import tempfile
+import urllib.request
 from datetime import datetime
 from typing import List, Optional
 from contextlib import asynccontextmanager
@@ -106,6 +108,46 @@ def merge_wavs(paths: List[str], out_path: str) -> None:
         for p in paths:
             with wave.open(p, "rb") as w:
                 out.writeframes(w.readframes(w.getnframes()))
+
+def download_voice_file(voice_path: str) -> tuple[str, bool]:
+    """
+    Download voice file if it's a URL, otherwise return the local path.
+    
+    Args:
+        voice_path: Local file path or HTTP(S) URL
+        
+    Returns:
+        Tuple of (local_path, is_temp_file)
+        - local_path: Path to the voice file
+        - is_temp_file: True if file was downloaded and should be cleaned up
+    """
+    # Check if it's a URL
+    if voice_path.startswith(('http://', 'https://')):
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            print(f"[{timestamp}] 🌐 Downloading voice file from URL: {voice_path}")
+            
+            # Create temporary file
+            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
+            temp_path = temp_file.name
+            temp_file.close()
+            
+            # Download file
+            urllib.request.urlretrieve(voice_path, temp_path)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            print(f"[{timestamp}] ✅ Voice file downloaded to: {temp_path}")
+            
+            return temp_path, True
+        except Exception as e:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            print(f"[{timestamp}] ❌ Failed to download voice file: {e}")
+            raise HTTPException(status_code=400, detail=f"Failed to download voice file from URL: {str(e)}")
+    else:
+        # It's a local path
+        if not os.path.exists(voice_path):
+            raise HTTPException(status_code=400, detail=f"Voice file not found: {voice_path}")
+        return voice_path, False
 
 class TTSService:
     """A service class to handle Text-to-Speech inference."""
@@ -259,6 +301,9 @@ async def synthesize(
     if not text and not file:
         raise HTTPException(status_code=400, detail="Either 'text' (form field) or 'file' (upload) must be provided.")
 
+    # Download voice file if it's a URL
+    local_voice_path, is_temp_voice = download_voice_file(voice_path)
+
     input_text = ""
     base_filename = ""
     if file and file.filename:
@@ -286,7 +331,7 @@ async def synthesize(
             try:
                 tts_service.infer_chunk(
                     text=chunk,
-                    voice_path=voice_path,
+                    voice_path=local_voice_path,
                     out_path=out_path,
                     duration_sec=duration_sec if i == 0 else None
                 )
@@ -317,6 +362,14 @@ async def synthesize(
                     print(f"  - Removed {p}")
                 except OSError as e:
                     print(f"\033[91mError removing intermediate file {p}: {e}\033[0m")
+        
+        # Clean up temporary voice file if downloaded from URL
+        if is_temp_voice and os.path.exists(local_voice_path):
+            try:
+                os.remove(local_voice_path)
+                print(f"  - Removed temporary voice file: {local_voice_path}")
+            except OSError as e:
+                print(f"\033[91mError removing temporary voice file: {e}\033[0m")
 
 # --- Helper Functions for R2 and Supabase ---
 
@@ -436,6 +489,9 @@ async def synthesize_with_storage(
     if not text and not file:
         raise HTTPException(status_code=400, detail="Either 'text' (form field) or 'file' (upload) must be provided.")
 
+    # Download voice file if it's a URL
+    local_voice_path, is_temp_voice = download_voice_file(voice_path)
+
     # Parse input
     input_text = ""
     base_filename = ""
@@ -474,7 +530,7 @@ async def synthesize_with_storage(
                 
                 tts_service.infer_chunk(
                     text=chunk,
-                    voice_path=voice_path,
+                    voice_path=local_voice_path,
                     out_path=out_path,
                     duration_sec=duration_sec if i == 0 else None
                 )
@@ -542,6 +598,15 @@ async def synthesize_with_storage(
                         print(f"  ✓ Removed: {p}")
                 except OSError as e:
                     print(f"  ⚠️  Error removing {p}: {e}")
+        
+        # Clean up temporary voice file if downloaded from URL
+        if is_temp_voice and os.path.exists(local_voice_path):
+            try:
+                os.remove(local_voice_path)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                print(f"[{timestamp}] 🧹 Removed temporary voice file: {local_voice_path}")
+            except OSError as e:
+                print(f"  ⚠️  Error removing temporary voice file: {e}")
 
 def main():
 
