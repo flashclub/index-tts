@@ -15,6 +15,7 @@ from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from pyngrok import ngrok
 import boto3
 from botocore.exceptions import ClientError
+from botocore.config import Config
 from supabase import create_client, Client
 
 # --- Command Line Arguments ---
@@ -238,12 +239,19 @@ async def lifespan(app: FastAPI):
     if all([r2_account_id, r2_access_key, r2_secret_key, r2_bucket_name]):
         try:
             print("Initializing R2 client...")
+            # Configure boto3 to work with R2 and handle SSL issues
+            boto_config = Config(
+                signature_version='s3v4',
+                s3={'addressing_style': 'path'}
+            )
             r2_client = boto3.client(
                 service_name='s3',
                 endpoint_url=f'https://{r2_account_id}.r2.cloudflarestorage.com',
                 aws_access_key_id=r2_access_key,
                 aws_secret_access_key=r2_secret_key,
-                region_name='auto'
+                region_name='auto',
+                config=boto_config,
+                verify=False  # Disable SSL verification to avoid handshake issues
             )
             print("\033[92mR2 client initialized successfully.\033[0m")
         except Exception as e:
